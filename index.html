@@ -10,8 +10,8 @@ Cette page affiche en diaporama les photos stockées sur Supabase.
 
 2. 🔧 CONFIGURATION DANS LE CODE
    - Modifiez les constantes en haut du script :
-     const SUPABASE_URL = 'https://votre-projet.supabase.co';
-     const SUPABASE_ANON_KEY = 'votre-cle-publique';
+     const SUPABASE_URL = 'https://xyzcompany.supabase.co';
+     const SUPABASE_ANON_KEY = 'public-anon-key';
 
 3. 🎮 CONTRÔLES DIAPORAMA
    - Clic gauche : photo suivante
@@ -30,7 +30,7 @@ Cette page affiche en diaporama les photos stockées sur Supabase.
     <title>Diaporama Photos - CGI PhotoBooth</title>
     
     <!-- Supabase Client -->
-    <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     
     <style>
         * {
@@ -331,16 +331,16 @@ Cette page affiche en diaporama les photos stockées sur Supabase.
 
     <script>
         // 🔧 CONFIGURATION SUPABASE - À MODIFIER ICI
-        const SUPABASE_URL = 'https://kbzpvusmjmxmoerghzej.supabase.co';
-        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtienB2dXNtam14bW9lcmdoemVqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTAwODEzNDAsImV4cCI6MjA2NTY1NzM0MH0.uiN0X-iVciCBKoOIoK_QjyJ8lr-jJ5pfKYXZiQn3LBA';
-         
+        const SUPABASE_URL = 'https://xyzcompany.supabase.co';  // Remplacez par votre Project URL
+        const SUPABASE_ANON_KEY = 'public-anon-key';            // Remplacez par votre anon public key
+        
         // 🎮 PARAMÈTRES DU DIAPORAMA - MODIFIABLES
         const SLIDESHOW_INTERVAL = 5000; // 5 secondes par photo
         const REFRESH_INTERVAL = 30000;  // Vérifier nouvelles photos toutes les 30 secondes
         const FADE_DURATION = 1000;      // Durée de transition entre photos
         
         // Variables globales
-        let supabase = null;
+        let client = null;
         let photos = [];
         let currentPhotoIndex = 0;
         let isPlaying = true;
@@ -358,17 +358,10 @@ Cette page affiche en diaporama les photos stockées sur Supabase.
         async function initializeSlideshow() {
             try {
                 showScreen('loading');
-               
-				
-				
-				// Vérifier si les clés Supabase sont configurées
                 
-                // Initialiser le client Supabase avec le bon objet global
-                supabaseClient = window.supabase.createClient('https://kbzpvusmjmxmoerghzej.supabase.co', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtienB2dXNtam14bW9lcmdoemVqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTAwODEzNDAsImV4cCI6MjA2NTY1NzM0MH0.uiN0X-iVciCBKoOIoK_QjyJ8lr-jJ5pfKYXZiQn3LBA');
-                isSupabaseInitialized = true;
-                
+
+                client = window.supabase.createClient('https://kbzpvusmjmxmoerghzej.supabase.co', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtienB2dXNtam14bW9lcmdoemVqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTAwODEzNDAsImV4cCI6MjA2NTY1NzM0MH0.uiN0X-iVciCBKoOIoK_QjyJ8lr-jJ5pfKYXZiQn3LBA');
                 console.log('✅ Supabase initialisé');
-   
                 
                 // Charger les photos
                 await loadPhotos();
@@ -393,7 +386,7 @@ Cette page affiche en diaporama les photos stockées sur Supabase.
         
         async function loadPhotos() {
             try {
-                const { data, error } = await supabase
+                const { data, error } = await client
                     .from('photos')
                     .select('*')
                     .order('created_at', { ascending: false });

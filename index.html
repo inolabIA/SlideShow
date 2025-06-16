@@ -1,29 +1,5 @@
 <!DOCTYPE html>
 <html lang="fr">
-<!--
-🔧 CONFIGURATION SUPABASE REQUISE
-
-Cette page affiche en diaporama les photos stockées sur Supabase.
-
-1. 📋 UTILISER LE MÊME PROJET SUPABASE
-   - Utilisez les mêmes URL et clé que dans l'app PhotoBooth
-
-2. 🔧 CONFIGURATION DANS LE CODE
-   - Modifiez les constantes en haut du script :
-     const SUPABASE_URL = 'https://xyzcompany.supabase.co';
-     const SUPABASE_ANON_KEY = 'public-anon-key';
-
-3. 🎮 CONTRÔLES DIAPORAMA
-   - Clic gauche : photo suivante
-   - Clic droit : photo précédente
-   - Barre d'espace : pause/lecture
-   - Flèches clavier : navigation
-   - F11 : plein écran
-
-4. ⚙️ PARAMÈTRES MODIFIABLES
-   - SLIDESHOW_INTERVAL : durée d'affichage (millisecondes)
-   - REFRESH_INTERVAL : fréquence de vérification nouvelles photos
--->
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -294,7 +270,7 @@ Cette page affiche en diaporama les photos stockées sur Supabase.
             <div class="error-message" id="errorMessage">
                 Impossible de charger les photos
             </div>
-            <button class="retry-btn" onclick="initializeSlideshow()">
+            <button class="retry-btn" onclick="startApp()">
                 🔄 Réessayer
             </button>
         </div>
@@ -331,62 +307,66 @@ Cette page affiche en diaporama les photos stockées sur Supabase.
 
     <script>
         // 🔧 CONFIGURATION SUPABASE - À MODIFIER ICI
-        const SUPABASE_URL = 'https://xyzcompany.supabase.co';  // Remplacez par votre Project URL
-        const SUPABASE_ANON_KEY = 'public-anon-key';            // Remplacez par votre anon public key
+        const SUPABASE_URL = 'https://xyzcompany.supabase.co';
+        const SUPABASE_ANON_KEY = 'public-anon-key';
         
-        // 🎮 PARAMÈTRES DU DIAPORAMA - MODIFIABLES
+        // 🎮 PARAMÈTRES DU DIAPORAMA
         const SLIDESHOW_INTERVAL = 5000; // 5 secondes par photo
         const REFRESH_INTERVAL = 30000;  // Vérifier nouvelles photos toutes les 30 secondes
-        const FADE_DURATION = 1000;      // Durée de transition entre photos
         
         // Variables globales
-        let client = null;
-        let photos = [];
-        let currentPhotoIndex = 0;
-        let isPlaying = true;
-        let slideshowTimer = null;
+        let supabaseInstance = null;
+        let photosArray = [];
+        let currentIndex = 0;
+        let isAutoPlaying = true;
+        let autoTimer = null;
         let refreshTimer = null;
-        let controlsTimeout = null;
-        let lastMouseMove = 0;
+        let controlsTimer = null;
+        let lastMove = 0;
         
-        // Initialisation
-        document.addEventListener('DOMContentLoaded', function() {
-            initializeSlideshow();
-            setupEventListeners();
-        });
+        // Démarrage de l'application
+        document.addEventListener('DOMContentLoaded', startApp);
         
-        async function initializeSlideshow() {
+        async function startApp() {
             try {
                 showScreen('loading');
+                await initSupabase();
+                await loadAllPhotos();
                 
-
-                client = window.supabase.createClient('https://kbzpvusmjmxmoerghzej.supabase.co', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtienB2dXNtam14bW9lcmdoemVqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTAwODEzNDAsImV4cCI6MjA2NTY1NzM0MH0.uiN0X-iVciCBKoOIoK_QjyJ8lr-jJ5pfKYXZiQn3LBA');
-                console.log('✅ Supabase initialisé');
-                
-                // Charger les photos
-                await loadPhotos();
-                
-                if (photos.length === 0) {
+                if (photosArray.length === 0) {
                     showScreen('noPhotos');
-                    // Programmer une vérification régulière
-                    startRefreshTimer();
+                    startRefresh();
                 } else {
-                    // Démarrer le diaporama
-                    createSlides();
+                    buildSlides();
                     showScreen('slideshow');
-                    startSlideshow();
-                    startRefreshTimer();
+                    startAuto();
+                    startRefresh();
                 }
                 
             } catch (error) {
-                console.error('❌ Erreur initialisation:', error);
+                console.error('❌ Erreur:', error);
                 showError(error.message);
             }
         }
         
-        async function loadPhotos() {
+        async function initSupabase() {
+
+            
             try {
-                const { data, error } = await client
+                const { createClient } = window.supabase;
+                supabaseInstance = createClient('https://kbzpvusmjmxmoerghzej.supabase.co', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtienB2dXNtam14bW9lcmdoemVqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTAwODEzNDAsImV4cCI6MjA2NTY1NzM0MH0.uiN0X-iVciCBKoOIoK_QjyJ8lr-jJ5pfKYXZiQn3LBA');abase connecté');
+            } catch (error) {
+                throw new Error('Impossible de créer le client Supabase: ' + error.message);
+            }
+        }
+        
+        async function loadAllPhotos() {
+            if (!supabaseInstance) {
+                throw new Error('Client Supabase non initialisé');
+            }
+            
+            try {
+                const { data, error } = await supabaseInstance
                     .from('photos')
                     .select('*')
                     .order('created_at', { ascending: false });
@@ -395,22 +375,19 @@ Cette page affiche en diaporama les photos stockées sur Supabase.
                     throw new Error(`Erreur base de données: ${error.message}`);
                 }
                 
-                photos = data || [];
-                console.log(`📷 ${photos.length} photos trouvées`);
-                
-                return photos;
+                photosArray = data || [];
+                console.log(`📷 ${photosArray.length} photos chargées`);
                 
             } catch (error) {
-                console.error('❌ Erreur chargement photos:', error);
-                throw error;
+                throw new Error('Erreur lors du chargement: ' + error.message);
             }
         }
         
-        function createSlides() {
+        function buildSlides() {
             const container = document.getElementById('slideshowContainer');
             container.innerHTML = '';
             
-            photos.forEach((photo, index) => {
+            photosArray.forEach((photo, index) => {
                 const slide = document.createElement('div');
                 slide.className = 'slide';
                 slide.id = `slide-${index}`;
@@ -419,8 +396,7 @@ Cette page affiche en diaporama les photos stockées sur Supabase.
                 img.src = photo.public_url;
                 img.alt = `Photo ${photo.filename}`;
                 img.onerror = () => {
-                    console.warn('❌ Erreur chargement image:', photo.filename);
-                    // Masquer cette slide si l'image ne charge pas
+                    console.warn('❌ Image non chargée:', photo.filename);
                     slide.style.display = 'none';
                 };
                 
@@ -428,204 +404,106 @@ Cette page affiche en diaporama les photos stockées sur Supabase.
                 container.appendChild(slide);
             });
             
-            // Afficher la première photo
-            if (photos.length > 0) {
-                showPhoto(0);
+            if (photosArray.length > 0) {
+                displayPhoto(0);
                 updateCounter();
             }
         }
         
-        function showPhoto(index) {
-            // Masquer toutes les slides
+        function displayPhoto(index) {
             document.querySelectorAll('.slide').forEach(slide => {
                 slide.classList.remove('active');
             });
             
-            // Afficher la slide demandée
             const slide = document.getElementById(`slide-${index}`);
             if (slide && slide.style.display !== 'none') {
                 slide.classList.add('active');
-                currentPhotoIndex = index;
+                currentIndex = index;
                 updateCounter();
             }
         }
         
         function nextPhoto() {
-            if (photos.length === 0) return;
-            
-            let nextIndex = (currentPhotoIndex + 1) % photos.length;
-            
-            // Éviter les photos avec images cassées
-            let attempts = 0;
-            while (attempts < photos.length) {
-                const slide = document.getElementById(`slide-${nextIndex}`);
-                if (slide && slide.style.display !== 'none') {
-                    break;
-                }
-                nextIndex = (nextIndex + 1) % photos.length;
-                attempts++;
-            }
-            
-            showPhoto(nextIndex);
+            if (photosArray.length === 0) return;
+            let next = (currentIndex + 1) % photosArray.length;
+            displayPhoto(next);
         }
         
         function previousPhoto() {
-            if (photos.length === 0) return;
-            
-            let prevIndex = currentPhotoIndex - 1;
-            if (prevIndex < 0) prevIndex = photos.length - 1;
-            
-            // Éviter les photos avec images cassées
-            let attempts = 0;
-            while (attempts < photos.length) {
-                const slide = document.getElementById(`slide-${prevIndex}`);
-                if (slide && slide.style.display !== 'none') {
-                    break;
-                }
-                prevIndex = prevIndex - 1;
-                if (prevIndex < 0) prevIndex = photos.length - 1;
-                attempts++;
-            }
-            
-            showPhoto(prevIndex);
-        }
-        
-        function startSlideshow() {
-            if (photos.length <= 1) return;
-            
-            slideshowTimer = setInterval(() => {
-                if (isPlaying) {
-                    nextPhoto();
-                }
-            }, SLIDESHOW_INTERVAL);
-        }
-        
-        function stopSlideshow() {
-            if (slideshowTimer) {
-                clearInterval(slideshowTimer);
-                slideshowTimer = null;
-            }
+            if (photosArray.length === 0) return;
+            let prev = currentIndex - 1;
+            if (prev < 0) prev = photosArray.length - 1;
+            displayPhoto(prev);
         }
         
         function togglePlayPause() {
-            isPlaying = !isPlaying;
+            isAutoPlaying = !isAutoPlaying;
             
             const btn = document.getElementById('playPauseBtn');
             const indicator = document.getElementById('statusIndicator');
             
-            if (isPlaying) {
+            if (isAutoPlaying) {
                 btn.innerHTML = '⏸️';
                 btn.title = 'Pause';
                 indicator.innerHTML = '▶️ Lecture automatique';
                 indicator.className = 'status-indicator playing visible';
-                startSlideshow();
+                startAuto();
             } else {
                 btn.innerHTML = '▶️';
                 btn.title = 'Lecture';
                 indicator.innerHTML = '⏸️ En pause';
                 indicator.className = 'status-indicator paused visible';
-                stopSlideshow();
+                stopAuto();
             }
             
             showControls();
         }
         
-        function updateCounter() {
-            const counter = document.getElementById('photoCounter');
-            counter.textContent = `${currentPhotoIndex + 1} / ${photos.length}`;
+        function startAuto() {
+            if (photosArray.length <= 1) return;
+            
+            autoTimer = setInterval(() => {
+                if (isAutoPlaying) {
+                    nextPhoto();
+                }
+            }, SLIDESHOW_INTERVAL);
         }
         
-        function startRefreshTimer() {
+        function stopAuto() {
+            if (autoTimer) {
+                clearInterval(autoTimer);
+                autoTimer = null;
+            }
+        }
+        
+        function startRefresh() {
             refreshTimer = setInterval(async () => {
                 try {
                     console.log('🔄 Vérification nouvelles photos...');
-                    const oldCount = photos.length;
-                    await loadPhotos();
+                    const oldCount = photosArray.length;
+                    await loadAllPhotos();
                     
-                    if (photos.length > oldCount) {
-                        console.log(`✅ ${photos.length - oldCount} nouvelles photos trouvées`);
+                    if (photosArray.length > oldCount) {
+                        console.log(`✅ ${photosArray.length - oldCount} nouvelles photos`);
                         
-                        // Si on était sur l'écran "aucune photo", démarrer le diaporama
-                        if (oldCount === 0 && photos.length > 0) {
-                            createSlides();
+                        if (oldCount === 0 && photosArray.length > 0) {
+                            buildSlides();
                             showScreen('slideshow');
-                            startSlideshow();
+                            startAuto();
                         } else {
-                            // Mettre à jour le diaporama existant
-                            createSlides();
+                            buildSlides();
                         }
                     }
                     
                 } catch (error) {
-                    console.warn('⚠️ Erreur lors de la vérification:', error.message);
+                    console.warn('⚠️ Erreur vérification:', error.message);
                 }
             }, REFRESH_INTERVAL);
         }
         
-        function setupEventListeners() {
-            // Contrôles clavier
-            document.addEventListener('keydown', (e) => {
-                switch(e.code) {
-                    case 'ArrowRight':
-                    case 'Space':
-                        e.preventDefault();
-                        if (e.code === 'Space') {
-                            togglePlayPause();
-                        } else {
-                            nextPhoto();
-                        }
-                        showControls();
-                        break;
-                        
-                    case 'ArrowLeft':
-                        e.preventDefault();
-                        previousPhoto();
-                        showControls();
-                        break;
-                        
-                    case 'Escape':
-                        if (document.fullscreenElement) {
-                            document.exitFullscreen();
-                        }
-                        break;
-                        
-                    case 'F11':
-                        e.preventDefault();
-                        if (!document.fullscreenElement) {
-                            document.documentElement.requestFullscreen();
-                        } else {
-                            document.exitFullscreen();
-                        }
-                        break;
-                }
-            });
-            
-            // Contrôles souris
-            document.addEventListener('click', (e) => {
-                if (e.button === 0) { // Clic gauche
-                    nextPhoto();
-                    showControls();
-                }
-            });
-            
-            document.addEventListener('contextmenu', (e) => {
-                e.preventDefault(); // Empêcher le menu contextuel
-                previousPhoto();
-                showControls();
-            });
-            
-            // Mouvement de souris pour afficher les contrôles
-            document.addEventListener('mousemove', () => {
-                lastMouseMove = Date.now();
-                showControls();
-            });
-            
-            // Masquer les contrôles après inactivité
-            setInterval(() => {
-                if (Date.now() - lastMouseMove > 3000) { // 3 secondes d'inactivité
-                    hideControls();
-                }
-            }, 1000);
+        function updateCounter() {
+            const counter = document.getElementById('photoCounter');
+            counter.textContent = `${currentIndex + 1} / ${photosArray.length}`;
         }
         
         function showControls() {
@@ -635,33 +513,21 @@ Cette page affiche en diaporama les photos stockées sur Supabase.
             controls.classList.add('visible');
             indicator.classList.add('visible');
             
-            // Masquer automatiquement après 3 secondes
-            if (controlsTimeout) {
-                clearTimeout(controlsTimeout);
-            }
+            if (controlsTimer) clearTimeout(controlsTimer);
             
-            controlsTimeout = setTimeout(() => {
-                hideControls();
+            controlsTimer = setTimeout(() => {
+                controls.classList.remove('visible');
+                indicator.classList.remove('visible');
             }, 3000);
         }
         
-        function hideControls() {
-            const controls = document.getElementById('controlsOverlay');
-            const indicator = document.getElementById('statusIndicator');
-            
-            controls.classList.remove('visible');
-            indicator.classList.remove('visible');
-        }
-        
-        function showScreen(screenName) {
-            // Masquer tous les écrans
+        function showScreen(name) {
             document.getElementById('loadingScreen').style.display = 'none';
             document.getElementById('errorScreen').style.display = 'none';
             document.getElementById('noPhotosScreen').style.display = 'none';
             document.getElementById('slideshowContainer').style.display = 'none';
             
-            // Afficher l'écran demandé
-            switch(screenName) {
+            switch(name) {
                 case 'loading':
                     document.getElementById('loadingScreen').style.display = 'flex';
                     break;
@@ -673,39 +539,88 @@ Cette page affiche en diaporama les photos stockées sur Supabase.
                     break;
                 case 'slideshow':
                     document.getElementById('slideshowContainer').style.display = 'flex';
-                    showControls(); // Afficher les contrôles brièvement
+                    showControls();
                     break;
             }
         }
         
         function showError(message) {
-            const errorMsg = document.getElementById('errorMessage');
-            errorMsg.textContent = message;
+            document.getElementById('errorMessage').textContent = message;
             showScreen('error');
         }
         
-        // Nettoyage avant fermeture
-        window.addEventListener('beforeunload', () => {
-            if (slideshowTimer) clearInterval(slideshowTimer);
-            if (refreshTimer) clearInterval(refreshTimer);
-            if (controlsTimeout) clearTimeout(controlsTimeout);
+        // Événements
+        document.addEventListener('keydown', (e) => {
+            switch(e.code) {
+                case 'ArrowRight':
+                    e.preventDefault();
+                    nextPhoto();
+                    showControls();
+                    break;
+                case 'ArrowLeft':
+                    e.preventDefault();
+                    previousPhoto();
+                    showControls();
+                    break;
+                case 'Space':
+                    e.preventDefault();
+                    togglePlayPause();
+                    break;
+                case 'F11':
+                    e.preventDefault();
+                    if (!document.fullscreenElement) {
+                        document.documentElement.requestFullscreen();
+                    } else {
+                        document.exitFullscreen();
+                    }
+                    break;
+            }
         });
         
-        // Gestion de la visibilité de la page
+        document.addEventListener('click', (e) => {
+            if (e.button === 0) {
+                nextPhoto();
+                showControls();
+            }
+        });
+        
+        document.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            previousPhoto();
+            showControls();
+        });
+        
+        document.addEventListener('mousemove', () => {
+            lastMove = Date.now();
+            showControls();
+        });
+        
+        setInterval(() => {
+            if (Date.now() - lastMove > 3000) {
+                document.getElementById('controlsOverlay').classList.remove('visible');
+                document.getElementById('statusIndicator').classList.remove('visible');
+            }
+        }, 1000);
+        
+        // Nettoyage
+        window.addEventListener('beforeunload', () => {
+            if (autoTimer) clearInterval(autoTimer);
+            if (refreshTimer) clearInterval(refreshTimer);
+            if (controlsTimer) clearTimeout(controlsTimer);
+        });
+        
         document.addEventListener('visibilitychange', () => {
             if (document.hidden) {
-                // Page cachée, arrêter les timers
-                stopSlideshow();
+                stopAuto();
                 if (refreshTimer) {
                     clearInterval(refreshTimer);
                     refreshTimer = null;
                 }
             } else {
-                // Page visible, redémarrer
-                if (isPlaying && photos.length > 1) {
-                    startSlideshow();
+                if (isAutoPlaying && photosArray.length > 1) {
+                    startAuto();
                 }
-                startRefreshTimer();
+                startRefresh();
             }
         });
     </script>

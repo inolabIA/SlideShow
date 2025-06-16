@@ -1,0 +1,720 @@
+<!DOCTYPE html>
+<html lang="fr">
+<!--
+🔧 CONFIGURATION SUPABASE REQUISE
+
+Cette page affiche en diaporama les photos stockées sur Supabase.
+
+1. 📋 UTILISER LE MÊME PROJET SUPABASE
+   - Utilisez les mêmes URL et clé que dans l'app PhotoBooth
+
+2. 🔧 CONFIGURATION DANS LE CODE
+   - Modifiez les constantes en haut du script :
+     const SUPABASE_URL = 'https://votre-projet.supabase.co';
+     const SUPABASE_ANON_KEY = 'votre-cle-publique';
+
+3. 🎮 CONTRÔLES DIAPORAMA
+   - Clic gauche : photo suivante
+   - Clic droit : photo précédente
+   - Barre d'espace : pause/lecture
+   - Flèches clavier : navigation
+   - F11 : plein écran
+
+4. ⚙️ PARAMÈTRES MODIFIABLES
+   - SLIDESHOW_INTERVAL : durée d'affichage (millisecondes)
+   - REFRESH_INTERVAL : fréquence de vérification nouvelles photos
+-->
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Diaporama Photos - CGI PhotoBooth</title>
+    
+    <!-- Supabase Client -->
+    <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #000;
+            color: white;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            overflow: hidden;
+            cursor: none;
+        }
+
+        .slideshow-container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .slide {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            transition: opacity 1s ease-in-out;
+        }
+
+        .slide.active {
+            opacity: 1;
+        }
+
+        .slide img {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+            border-radius: 8px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+        }
+
+        .loading-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #000;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+
+        .spinner {
+            width: 60px;
+            height: 60px;
+            border: 4px solid rgba(139, 92, 246, 0.3);
+            border-top: 4px solid #8B5CF6;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 30px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .loading-text {
+            font-size: 24px;
+            margin-bottom: 10px;
+            color: #8B5CF6;
+        }
+
+        .loading-subtext {
+            font-size: 16px;
+            color: #888;
+            text-align: center;
+            max-width: 400px;
+            line-height: 1.5;
+        }
+
+        .error-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #000;
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+
+        .error-content {
+            text-align: center;
+            padding: 40px;
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid #EF4444;
+            border-radius: 16px;
+            max-width: 500px;
+        }
+
+        .error-title {
+            font-size: 32px;
+            color: #EF4444;
+            margin-bottom: 20px;
+        }
+
+        .error-message {
+            font-size: 18px;
+            color: #FCA5A5;
+            margin-bottom: 30px;
+            line-height: 1.5;
+        }
+
+        .retry-btn {
+            background: #8B5CF6;
+            border: none;
+            color: white;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .retry-btn:hover {
+            background: #7C3AED;
+        }
+
+        .controls-overlay {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.7);
+            padding: 15px 25px;
+            border-radius: 30px;
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            z-index: 100;
+        }
+
+        .controls-overlay.visible {
+            opacity: 1;
+        }
+
+        .control-btn {
+            background: none;
+            border: none;
+            color: white;
+            font-size: 20px;
+            cursor: pointer;
+            padding: 8px;
+            border-radius: 50%;
+            transition: all 0.2s ease;
+        }
+
+        .control-btn:hover {
+            background: rgba(255,255,255,0.2);
+        }
+
+        .photo-counter {
+            color: #8B5CF6;
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .status-indicator {
+            position: fixed;
+            top: 30px;
+            right: 30px;
+            background: rgba(0,0,0,0.7);
+            padding: 10px 15px;
+            border-radius: 20px;
+            font-size: 14px;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            z-index: 100;
+        }
+
+        .status-indicator.visible {
+            opacity: 1;
+        }
+
+        .status-indicator.playing {
+            color: #10B981;
+        }
+
+        .status-indicator.paused {
+            color: #F59E0B;
+        }
+
+        .no-photos {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #000;
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+
+        .no-photos-content {
+            text-align: center;
+            padding: 40px;
+        }
+
+        .no-photos-icon {
+            font-size: 64px;
+            margin-bottom: 20px;
+        }
+
+        .no-photos-title {
+            font-size: 28px;
+            color: #8B5CF6;
+            margin-bottom: 15px;
+        }
+
+        .no-photos-message {
+            font-size: 18px;
+            color: #888;
+            line-height: 1.5;
+            max-width: 400px;
+        }
+    </style>
+</head>
+<body>
+    <!-- Écran de chargement -->
+    <div class="loading-screen" id="loadingScreen">
+        <div class="spinner"></div>
+        <div class="loading-text">Chargement du diaporama</div>
+        <div class="loading-subtext">
+            Connexion à Supabase et récupération des photos...
+        </div>
+    </div>
+
+    <!-- Écran d'erreur -->
+    <div class="error-screen" id="errorScreen">
+        <div class="error-content">
+            <div class="error-title">❌ Erreur</div>
+            <div class="error-message" id="errorMessage">
+                Impossible de charger les photos
+            </div>
+            <button class="retry-btn" onclick="initializeSlideshow()">
+                🔄 Réessayer
+            </button>
+        </div>
+    </div>
+
+    <!-- Écran aucune photo -->
+    <div class="no-photos" id="noPhotosScreen">
+        <div class="no-photos-content">
+            <div class="no-photos-icon">📷</div>
+            <div class="no-photos-title">Aucune photo disponible</div>
+            <div class="no-photos-message">
+                Le diaporama démarrera automatiquement dès qu'une photo sera ajoutée au PhotoBooth.
+            </div>
+        </div>
+    </div>
+
+    <!-- Container du diaporama -->
+    <div class="slideshow-container" id="slideshowContainer">
+        <!-- Les slides seront ajoutées ici dynamiquement -->
+    </div>
+
+    <!-- Contrôles -->
+    <div class="controls-overlay" id="controlsOverlay">
+        <button class="control-btn" onclick="previousPhoto()" title="Photo précédente">⏮️</button>
+        <button class="control-btn" id="playPauseBtn" onclick="togglePlayPause()" title="Pause/Lecture">⏸️</button>
+        <button class="control-btn" onclick="nextPhoto()" title="Photo suivante">⏭️</button>
+        <div class="photo-counter" id="photoCounter">0 / 0</div>
+    </div>
+
+    <!-- Indicateur de statut -->
+    <div class="status-indicator playing" id="statusIndicator">
+        ▶️ Lecture automatique
+    </div>
+
+    <script>
+        // 🔧 CONFIGURATION SUPABASE - À MODIFIER ICI
+        const SUPABASE_URL = 'https://kbzpvusmjmxmoerghzej.supabase.co';
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtienB2dXNtam14bW9lcmdoemVqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTAwODEzNDAsImV4cCI6MjA2NTY1NzM0MH0.uiN0X-iVciCBKoOIoK_QjyJ8lr-jJ5pfKYXZiQn3LBA';
+         
+        // 🎮 PARAMÈTRES DU DIAPORAMA - MODIFIABLES
+        const SLIDESHOW_INTERVAL = 5000; // 5 secondes par photo
+        const REFRESH_INTERVAL = 30000;  // Vérifier nouvelles photos toutes les 30 secondes
+        const FADE_DURATION = 1000;      // Durée de transition entre photos
+        
+        // Variables globales
+        let supabase = null;
+        let photos = [];
+        let currentPhotoIndex = 0;
+        let isPlaying = true;
+        let slideshowTimer = null;
+        let refreshTimer = null;
+        let controlsTimeout = null;
+        let lastMouseMove = 0;
+        
+        // Initialisation
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeSlideshow();
+            setupEventListeners();
+        });
+        
+        async function initializeSlideshow() {
+            try {
+                showScreen('loading');
+               
+				
+				
+				// Vérifier si les clés Supabase sont configurées
+                
+                // Initialiser le client Supabase avec le bon objet global
+                supabaseClient = window.supabase.createClient('https://kbzpvusmjmxmoerghzej.supabase.co', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtienB2dXNtam14bW9lcmdoemVqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTAwODEzNDAsImV4cCI6MjA2NTY1NzM0MH0.uiN0X-iVciCBKoOIoK_QjyJ8lr-jJ5pfKYXZiQn3LBA');
+                isSupabaseInitialized = true;
+                
+                console.log('✅ Supabase initialisé');
+   
+                
+                // Charger les photos
+                await loadPhotos();
+                
+                if (photos.length === 0) {
+                    showScreen('noPhotos');
+                    // Programmer une vérification régulière
+                    startRefreshTimer();
+                } else {
+                    // Démarrer le diaporama
+                    createSlides();
+                    showScreen('slideshow');
+                    startSlideshow();
+                    startRefreshTimer();
+                }
+                
+            } catch (error) {
+                console.error('❌ Erreur initialisation:', error);
+                showError(error.message);
+            }
+        }
+        
+        async function loadPhotos() {
+            try {
+                const { data, error } = await supabase
+                    .from('photos')
+                    .select('*')
+                    .order('created_at', { ascending: false });
+                
+                if (error) {
+                    throw new Error(`Erreur base de données: ${error.message}`);
+                }
+                
+                photos = data || [];
+                console.log(`📷 ${photos.length} photos trouvées`);
+                
+                return photos;
+                
+            } catch (error) {
+                console.error('❌ Erreur chargement photos:', error);
+                throw error;
+            }
+        }
+        
+        function createSlides() {
+            const container = document.getElementById('slideshowContainer');
+            container.innerHTML = '';
+            
+            photos.forEach((photo, index) => {
+                const slide = document.createElement('div');
+                slide.className = 'slide';
+                slide.id = `slide-${index}`;
+                
+                const img = document.createElement('img');
+                img.src = photo.public_url;
+                img.alt = `Photo ${photo.filename}`;
+                img.onerror = () => {
+                    console.warn('❌ Erreur chargement image:', photo.filename);
+                    // Masquer cette slide si l'image ne charge pas
+                    slide.style.display = 'none';
+                };
+                
+                slide.appendChild(img);
+                container.appendChild(slide);
+            });
+            
+            // Afficher la première photo
+            if (photos.length > 0) {
+                showPhoto(0);
+                updateCounter();
+            }
+        }
+        
+        function showPhoto(index) {
+            // Masquer toutes les slides
+            document.querySelectorAll('.slide').forEach(slide => {
+                slide.classList.remove('active');
+            });
+            
+            // Afficher la slide demandée
+            const slide = document.getElementById(`slide-${index}`);
+            if (slide && slide.style.display !== 'none') {
+                slide.classList.add('active');
+                currentPhotoIndex = index;
+                updateCounter();
+            }
+        }
+        
+        function nextPhoto() {
+            if (photos.length === 0) return;
+            
+            let nextIndex = (currentPhotoIndex + 1) % photos.length;
+            
+            // Éviter les photos avec images cassées
+            let attempts = 0;
+            while (attempts < photos.length) {
+                const slide = document.getElementById(`slide-${nextIndex}`);
+                if (slide && slide.style.display !== 'none') {
+                    break;
+                }
+                nextIndex = (nextIndex + 1) % photos.length;
+                attempts++;
+            }
+            
+            showPhoto(nextIndex);
+        }
+        
+        function previousPhoto() {
+            if (photos.length === 0) return;
+            
+            let prevIndex = currentPhotoIndex - 1;
+            if (prevIndex < 0) prevIndex = photos.length - 1;
+            
+            // Éviter les photos avec images cassées
+            let attempts = 0;
+            while (attempts < photos.length) {
+                const slide = document.getElementById(`slide-${prevIndex}`);
+                if (slide && slide.style.display !== 'none') {
+                    break;
+                }
+                prevIndex = prevIndex - 1;
+                if (prevIndex < 0) prevIndex = photos.length - 1;
+                attempts++;
+            }
+            
+            showPhoto(prevIndex);
+        }
+        
+        function startSlideshow() {
+            if (photos.length <= 1) return;
+            
+            slideshowTimer = setInterval(() => {
+                if (isPlaying) {
+                    nextPhoto();
+                }
+            }, SLIDESHOW_INTERVAL);
+        }
+        
+        function stopSlideshow() {
+            if (slideshowTimer) {
+                clearInterval(slideshowTimer);
+                slideshowTimer = null;
+            }
+        }
+        
+        function togglePlayPause() {
+            isPlaying = !isPlaying;
+            
+            const btn = document.getElementById('playPauseBtn');
+            const indicator = document.getElementById('statusIndicator');
+            
+            if (isPlaying) {
+                btn.innerHTML = '⏸️';
+                btn.title = 'Pause';
+                indicator.innerHTML = '▶️ Lecture automatique';
+                indicator.className = 'status-indicator playing visible';
+                startSlideshow();
+            } else {
+                btn.innerHTML = '▶️';
+                btn.title = 'Lecture';
+                indicator.innerHTML = '⏸️ En pause';
+                indicator.className = 'status-indicator paused visible';
+                stopSlideshow();
+            }
+            
+            showControls();
+        }
+        
+        function updateCounter() {
+            const counter = document.getElementById('photoCounter');
+            counter.textContent = `${currentPhotoIndex + 1} / ${photos.length}`;
+        }
+        
+        function startRefreshTimer() {
+            refreshTimer = setInterval(async () => {
+                try {
+                    console.log('🔄 Vérification nouvelles photos...');
+                    const oldCount = photos.length;
+                    await loadPhotos();
+                    
+                    if (photos.length > oldCount) {
+                        console.log(`✅ ${photos.length - oldCount} nouvelles photos trouvées`);
+                        
+                        // Si on était sur l'écran "aucune photo", démarrer le diaporama
+                        if (oldCount === 0 && photos.length > 0) {
+                            createSlides();
+                            showScreen('slideshow');
+                            startSlideshow();
+                        } else {
+                            // Mettre à jour le diaporama existant
+                            createSlides();
+                        }
+                    }
+                    
+                } catch (error) {
+                    console.warn('⚠️ Erreur lors de la vérification:', error.message);
+                }
+            }, REFRESH_INTERVAL);
+        }
+        
+        function setupEventListeners() {
+            // Contrôles clavier
+            document.addEventListener('keydown', (e) => {
+                switch(e.code) {
+                    case 'ArrowRight':
+                    case 'Space':
+                        e.preventDefault();
+                        if (e.code === 'Space') {
+                            togglePlayPause();
+                        } else {
+                            nextPhoto();
+                        }
+                        showControls();
+                        break;
+                        
+                    case 'ArrowLeft':
+                        e.preventDefault();
+                        previousPhoto();
+                        showControls();
+                        break;
+                        
+                    case 'Escape':
+                        if (document.fullscreenElement) {
+                            document.exitFullscreen();
+                        }
+                        break;
+                        
+                    case 'F11':
+                        e.preventDefault();
+                        if (!document.fullscreenElement) {
+                            document.documentElement.requestFullscreen();
+                        } else {
+                            document.exitFullscreen();
+                        }
+                        break;
+                }
+            });
+            
+            // Contrôles souris
+            document.addEventListener('click', (e) => {
+                if (e.button === 0) { // Clic gauche
+                    nextPhoto();
+                    showControls();
+                }
+            });
+            
+            document.addEventListener('contextmenu', (e) => {
+                e.preventDefault(); // Empêcher le menu contextuel
+                previousPhoto();
+                showControls();
+            });
+            
+            // Mouvement de souris pour afficher les contrôles
+            document.addEventListener('mousemove', () => {
+                lastMouseMove = Date.now();
+                showControls();
+            });
+            
+            // Masquer les contrôles après inactivité
+            setInterval(() => {
+                if (Date.now() - lastMouseMove > 3000) { // 3 secondes d'inactivité
+                    hideControls();
+                }
+            }, 1000);
+        }
+        
+        function showControls() {
+            const controls = document.getElementById('controlsOverlay');
+            const indicator = document.getElementById('statusIndicator');
+            
+            controls.classList.add('visible');
+            indicator.classList.add('visible');
+            
+            // Masquer automatiquement après 3 secondes
+            if (controlsTimeout) {
+                clearTimeout(controlsTimeout);
+            }
+            
+            controlsTimeout = setTimeout(() => {
+                hideControls();
+            }, 3000);
+        }
+        
+        function hideControls() {
+            const controls = document.getElementById('controlsOverlay');
+            const indicator = document.getElementById('statusIndicator');
+            
+            controls.classList.remove('visible');
+            indicator.classList.remove('visible');
+        }
+        
+        function showScreen(screenName) {
+            // Masquer tous les écrans
+            document.getElementById('loadingScreen').style.display = 'none';
+            document.getElementById('errorScreen').style.display = 'none';
+            document.getElementById('noPhotosScreen').style.display = 'none';
+            document.getElementById('slideshowContainer').style.display = 'none';
+            
+            // Afficher l'écran demandé
+            switch(screenName) {
+                case 'loading':
+                    document.getElementById('loadingScreen').style.display = 'flex';
+                    break;
+                case 'error':
+                    document.getElementById('errorScreen').style.display = 'flex';
+                    break;
+                case 'noPhotos':
+                    document.getElementById('noPhotosScreen').style.display = 'flex';
+                    break;
+                case 'slideshow':
+                    document.getElementById('slideshowContainer').style.display = 'flex';
+                    showControls(); // Afficher les contrôles brièvement
+                    break;
+            }
+        }
+        
+        function showError(message) {
+            const errorMsg = document.getElementById('errorMessage');
+            errorMsg.textContent = message;
+            showScreen('error');
+        }
+        
+        // Nettoyage avant fermeture
+        window.addEventListener('beforeunload', () => {
+            if (slideshowTimer) clearInterval(slideshowTimer);
+            if (refreshTimer) clearInterval(refreshTimer);
+            if (controlsTimeout) clearTimeout(controlsTimeout);
+        });
+        
+        // Gestion de la visibilité de la page
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                // Page cachée, arrêter les timers
+                stopSlideshow();
+                if (refreshTimer) {
+                    clearInterval(refreshTimer);
+                    refreshTimer = null;
+                }
+            } else {
+                // Page visible, redémarrer
+                if (isPlaying && photos.length > 1) {
+                    startSlideshow();
+                }
+                startRefreshTimer();
+            }
+        });
+    </script>
+</body>
+</html>
